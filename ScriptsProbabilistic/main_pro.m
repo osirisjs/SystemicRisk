@@ -5,9 +5,6 @@
 % d    = A float representing the six-month crisis threshold for the market index decline used to calculate LRMES (optional, default=0.40).
 % l    = A float representing the capital adequacy ratio used to calculate SRISK (optional, default=0.08).
 % anl  = A boolean that indicates whether to analyse the results (optional, default=false).
-%
-% [NOTES]
-% This function produces no outputs, its purpose is to save the results into an Excel spreadsheet and, optionally, analyse them.
 
 function main_pro(varargin)
 
@@ -40,18 +37,18 @@ end
 
 function main_pro_internal(data,res,k,d,l,anl)
 
-	data = initialize_data(data,k,d,l);
+    data = initialize_data(data,k,d,l);
 
     ret0_m = data.IdxRet - mean(data.IdxRet);
     
-    bar = waitbar(0,'Calculating probabilistc measures...','CreateCancelBtn','setappdata(gcbf,''stop'',true)');
-    setappdata(bar,'stop',false);
+    bar = waitbar(0,'Calculating probabilistc measures...','CreateCancelBtn','setappdata(gcbf,''Stop'',true)');
+    setappdata(bar,'Stop',false);
     
     try
         for i = 1:data.Frms
             waitbar(((i - 1) / data.Frms),bar,sprintf('Calculating probabilistc measures for %s and %s...',data.IdxNam,data.FrmsNam{i}));
 
-            if (getappdata(bar,'stop'))
+            if (getappdata(bar,'Stop'))
                 delete(bar);
                 return;
             end
@@ -78,7 +75,7 @@ function main_pro_internal(data,res,k,d,l,anl)
             data.MES(:,i) = -1 .* mes;
             data.SRISK(:,i) = srisk;
 
-            if (getappdata(bar,'stop'))
+            if (getappdata(bar,'Stop'))
                 delete(bar);
                 return;
             end
@@ -93,7 +90,7 @@ function main_pro_internal(data,res,k,d,l,anl)
         
         delete(bar);
         
-        if (anl)        
+        if (anl)
             plot_index(data);
             plot_averages(data);
             plot_correlations(data);
@@ -144,6 +141,12 @@ end
 
 function write_results(res,data)
 
+    [res_path,~,~] = fileparts(res);
+
+    if (exist(res_path,'dir') ~= 7)
+        mkdir(res_path);
+    end
+
     if (exist(res,'file') == 2)
         delete(res);
     end
@@ -176,10 +179,7 @@ end
 
 function plot_index(data)
 
-    tit = ['Market Index (' data.IdxNam ')'];
-
-    fig = figure();
-    set(fig,'Name',tit,'Units','normalized','Position',[100 100 1 1]);
+    fig = figure('Name',['Market Index (' data.IdxNam ')'],'Units','normalized','Position',[100 100 0.85 0.85]);
 
     sub_1 = subplot(2,1,1);
     plot(sub_1,data.DatesNum,data.IdxRet,'-b');
@@ -187,7 +187,10 @@ function plot_index(data)
     xlabel(sub_1,'Time');
     ylabel(sub_1,'Returns');
     set(sub_1,'XLim',[data.DatesNum(1) data.DatesNum(end)],'YLim',[(min(data.IdxRet) - 0.01) (max(data.IdxRet) + 0.01)]);
-    title(sub_1,'Log Returns');
+    t1 = title(sub_1,'Log Returns');
+    set(t1,'Units','normalized');
+    t1_pos = get(t1,'Position');
+    set(t1,'Position',[0.4783 t1_pos(2) t1_pos(3)]);
     
     sub_2 = subplot(2,1,2);
     hist = histogram(sub_2,data.IdxRet,50,'FaceAlpha',0.25,'Normalization','pdf');
@@ -199,12 +202,22 @@ function plot_index(data)
         plot(sub_2,x,f,'-b','LineWidth',1.5);
     hold off;
     strs = {sprintf('Observations: %d',size(data.IdxRet,1)) sprintf('Kurtosis: %.4f',kurtosis(data.IdxRet)) sprintf('Mean: %.4f',mean(data.IdxRet)) sprintf('Median: %.4f',median(data.IdxRet)) sprintf('Skewness: %.4f',skewness(data.IdxRet)) sprintf('Standard Deviation: %.4f',std(data.IdxRet))};
-    annotation('TextBox',(get(sub_2,'Position') - [0 0.03 0 0]),'String',strs,'EdgeColor','none','FitBoxToText','on','FontSize',8);
+    annotation('TextBox',(get(sub_2,'Position') - [0.03 0.03 0 0]),'String',strs,'EdgeColor','none','FitBoxToText','on','FontSize',8);
     set(sub_2,'XLim',[(edg_min - (edg_min * 0.1)) (edg_max - (edg_max * 0.1))]);
     title(sub_2,'P&L Distribution');
+    t2 = title(sub_2,'P&L Distribution');
+    set(t2,'Units','normalized');
+    t2_pos = get(t2,'Position');
+    set(t2,'Position',[0.4783 t2_pos(2) t2_pos(3)]);
 
-    suptitle(tit);
-    movegui(fig,'center');
+    t = figure_title(['Market Index (' data.IdxNam ')']);
+    t_pos = get(t,'Position');
+    set(t,'Position',[t_pos(1) -0.0157 t_pos(3)]);
+    
+    pause(0.01);
+
+    jfr = get(fig,'JavaFrame');
+    set(jfr,'Maximized',true);
 
 end
 
@@ -212,16 +225,18 @@ function plot_averages(data)
 
     avgs = data.Avgs(:,3:end) ./ 1e6;
     avgs_len = size(avgs,2);
-    
+
+    x_max = max(max(avgs));
+    x_max_sign = sign(x_max);
+    x_min = min(min(avgs));
+    x_min_sign = sign(x_min);
+
+    y_lim = [((abs(x_min) * 1.1) * x_min_sign) ((abs(x_max) * 1.1) * x_max_sign)];
+
+    fig = figure('Name','Averages','Units','normalized','Position',[100 100 0.85 0.85]);
+
     subs = NaN(avgs_len,1);
     
-    x_max = max(max(avgs));
-    x_min = min(min(avgs));
-    y_lim = [(x_min - (x_min * 0.1)) (x_max - (x_max * 0.1))];
-
-    fig = figure();
-    set(fig,'Name','Averages','Units','normalized','Position',[100 100 1 1]);
-
     for i = 1:avgs_len
         sub = subplot(2,2,i);
         plot(sub,data.DatesNum,avgs(:,i));
@@ -238,8 +253,14 @@ function plot_averages(data)
     y_lbls = arrayfun(@(x)sprintf('%.0f',x),(get(gca,'YTick') .* 100),'UniformOutput',false);
     set(subs,'YTickLabel',y_lbls);
     
-    suptitle('Averages');
-    movegui(fig,'center');
+    t = figure_title('Averages');
+    t_pos = get(t,'Position');
+    set(t,'Position',[t_pos(1) -0.0157 t_pos(3)]);
+
+    pause(0.01);
+
+    jfr = get(fig,'JavaFrame');
+    set(jfr,'Maximized',true);
 
 end
 
@@ -254,11 +275,18 @@ function plot_correlations(data)
     z = bsxfun(@rdivide,z,s);
     z_lims = [nanmin(z(:)) nanmax(z(:))];
 
-    fig = figure();
-    set(fig,'Name','Correlation Matrix','Units','normalized','Position',[100 100 1 1]);
+    fig = figure('Name','Correlation Matrix','Units','normalized');
+    
+    pause(0.01);
+    jfr = get(fig,'JavaFrame');
+    set(jfr,'Maximized',true);
 
+    pause(0.01);
+    set(0,'CurrentFigure',fig);
     [h,axes,big_ax] = gplotmatrix(data.Avgs,[],[],[],'o',2,[],'hist',meas,meas);
     set(h(logical(eye(6))),'FaceColor',[0.678 0.922 1]);
+    
+    drawnow();
 
     x_lbls = get(axes,'XLabel');
     y_lbls = get(axes,'YLabel');
@@ -294,6 +322,5 @@ function plot_correlations(data)
     end
 
     annotation('TextBox',[0 0 1 1],'String','Correlation Matrix','EdgeColor','none','FontName','Helvetica','FontSize',14,'HorizontalAlignment','center');
-    movegui(fig,'center');
 
 end

@@ -28,24 +28,24 @@ function data = parse_dataset_internal(file)
 
     [file_stat,file_shts,file_fmt] = xlsfinfo(file);
 
-    if (isempty(file_stat) || ~strcmp(file_fmt,'xlOpenXMLWorkbook'))
+    if (isempty(file_stat) || (ispc() && ~strcmp(file_fmt,'xlOpenXMLWorkbook')))
         error('The dataset file is not a valid Excel spreadsheet.');
     end
 
     shts_len = length(file_shts);
     
     if (shts_len < 3)
-        error('The dataset does not contain all the required time series.');
+        error('The dataset does not contain all the required sheets.');
     end
     
     if (shts_len > 5)
-        error('The dataset contains unnecessary time series.');
+        error('The dataset contains unnecessary sheets.');
     end
     
     file_shts = strtrim(file_shts);
     
     if (~isequal(file_shts(1:3),{'Returns' 'Market Capitalization' 'Total Liabilities'}))
-        error('The dataset contains invalid time series (wrong names or order).');
+        error('The dataset contains invalid (wrong name) or misplaced (wrong order) sheets.');
     end
     
     stvars_off = -1;
@@ -59,102 +59,117 @@ function data = parse_dataset_internal(file)
         elseif (strcmp(file_shts_4,'Groups'))
             grps_off = 4;
         else
-            error('The dataset contains invalid time series (wrong names or order).');
+            error('The dataset contains invalid (wrong name) or misplaced (wrong order) sheets.');
         end
     elseif (shts_len == 5)
         if (~isequal(file_shts(4:5),{'State Variables' 'Groups'}))
-            error('The dataset contains invalid time series (wrong names or order).');
+            error('The dataset contains invalid (wrong name) or misplaced (wrong order) sheets.');
         end
         
         stvars_off = 4;
         grps_off = 5;
     end
     
-    rets = readtable(file,'FileType','spreadsheet','Sheet',1);
-    vars = strtrim(rets.Properties.VariableNames);
+    rets = parse_table(file,1,'Returns');
     
-    dates_str = rets{:,1};
-    dates_num = datenum(dates_str,'dd/mm/yyyy');
-    frms = length(vars) - 2;
-    frms_nam = vars(3:end);
-    frms_ret = rets{:,3:end};
-    idx_ret = rets{:,2};
-    idx_nam = vars{2};
-    t = size(rets,1);
-    
-    rets.Date = [];
-    
-    if (frms < 5)
-        error('The dataset must consider at least 5 firms in order to run consistent calculations.');
+    if (width(rets) < 5)
+        error('The dataset must must contain at least the following series: observations dates, benchmark returns and the returns of three firms to analyze.');
     end
     
+    t = height(rets);
+
     if (t < 252)
         error('The dataset must contain at least 252 observations in order to run consistent calculations.');
     end
 
-    frms_cap = readtable(file,'FileType','spreadsheet','Sheet',2);
-    frms_cap.Date = [];
-    
-    if ((size(frms_cap,1) - 1) ~= t)
-        error('The number of observations for market capitalization does not match the number of observations for log returns plus one.');
+    if (any(ismissing(rets)))
+        error('The ''Returns'' table contains invalid or missing values.');
     end
 
-    if (~isequal(strtrim(frms_cap.Properties.VariableNames),frms_nam))
-        error('The time series of market capitalization do not match the time series of log returns.');
+    dates_str = cellstr(datestr(rets{:,1},'dd/mm/yyyy'));
+    dates_num = datenum(rets{:,1});
+    dates_beg = dates_num(1);
+    dates_end = dates_num(end);
+    rets.Date = [];
+
+    idx_ret = rets{:,1};
+    idx_nam = rets.Properties.VariableNames{1};
+    frms = numel(rets.Properties.VariableNames) - 1;
+    frms_nam = rets.Properties.VariableNames(2:end);
+    frms_ret = rets{:,2:end};
+
+    frms_cap = parse_table(file,2,'Market Capitalization');
+
+    if (any(ismissing(frms_cap)))
+        error('The ''Market Capitalization'' table contains invalid or missing values.');
+    end
+
+    if ((datenum(frms_cap.Date(1)) >=  dates_beg) || (datenum(frms_cap.Date(end)) ~=  dates_end) || ((size(frms_cap,1) - 1) ~= t))
+        error('The ''Returns'' table and the ''Market Capitalization'' table observation dates are mismatching.');
+    end
+
+    frms_cap.Date = [];
+    
+    if (~isequal(frms_cap.Properties.VariableNames,frms_nam))
+        error('The ''Returns'' table and the ''Market Capitalization'' table firms are mismatching.');
     end
     
-    frms_lia = readtable(file,'FileType','spreadsheet','Sheet',3);
+    frms_lia = parse_table(file,3,'Total Liabilities');
+    
+    if (any(ismissing(frms_lia)))
+        error('The ''Total Liabilities'' table contains invalid or missing values.');
+    end
+
+    if ((datenum(frms_lia.Date(1)) ~=  dates_beg) || (datenum(frms_lia.Date(end)) ~=  dates_end) || (size(frms_lia,1) ~= t))
+        error('The ''Returns'' table and the ''Total Liabilities'' table observation dates are mismatching.');
+    end
+
     frms_lia.Date = [];
     
-    if (size(frms_lia,1) ~= t)
-        error('The number of observations of total liabilities does not match the number of observations of log returns.');
-    end
-    
-    if (~isequal(strtrim(frms_lia.Properties.VariableNames),frms_nam))
-        error('The time series of total liabilities do not match the time series of log returns.');
+    if (~isequal(frms_lia.Properties.VariableNames,frms_nam))
+        error('The ''Returns'' table and the ''Total Liabilities'' table firms are mismatching.');
     end
 
     if (stvars_off ~= -1)
-        stvars = readtable(file,'FileType','spreadsheet','Sheet',stvars_off);
-        stvars.Date = [];
-
-        stvars_lag = stvars{1:end-1,:};
-
-        if (size(stvars_lag,1) ~= t)
-            error('The number of observations of state variables does not match the number of observations of log returns.');
+        stvars = parse_table(file,stvars_off,'State Variables');
+        
+        if (any(ismissing(stvars)))
+            error('The ''State Variables'' table contains invalid or missing values.');
         end
+        
+        if ((datenum(stvars.Date(1)) >=  dates_beg) || (datenum(stvars.Date(end)) ~=  dates_end) || ((size(stvars,1) - 1) ~= t))
+            error('The ''Returns'' table and the ''State Variables'' table observation dates are mismatching.');
+        end
+
+        stvars.Date = [];
+        stvars_lag = stvars{1:end-1,:};
     else
         stvars_lag = [];
     end
         
     if (grps_off ~= -1)
-        grps = readtable(file,'FileType','spreadsheet','Sheet',grps_off);
-        [grps_rows,grps_cols] = size(grps);
-
-        if (grps_rows < 2)
-            error('The number of rows in the Groups worksheet must be greater than or equal to 2.');
+        grps = parse_table(file,grps_off,'Groups');
+        
+        if (~isequal(grps.Properties.VariableNames,{'Delimiter' 'Name'}))
+            error('The ''Groups'' table contains invalid (wrong name) or misplaced (wrong order) columns.');
         end
 
-        if (grps_cols ~= 2)
-            error('The number of columns in the Groups worksheet must be equal to 2.');
-        end
-
-        if (~isequal(strtrim(grps.Properties.VariableNames),{'Delimiter' 'Name'}))
-            error('The header names in the Groups worksheet are not correct.');
+        if (size(grps,1) < 2)
+            error('In the ''Groups'' table, the number of rows must be greater than or equal to 2.');
         end
 
         grps_del = grps{:,1};
 
         if (grps_del(1) < 1)
-            error('The first group delimiter in the Groups worksheet must be greater than or equal to 1.');
+            error('In the ''Groups'' table, the first group delimiter must be greater than or equal to 1.');
         end
 
         if (grps_del(end-1) >= frms)
-            error('The penultimate group delimiter in the Groups worksheet must less than the number of firms.');
+            error('In the ''Groups'' table, the penultimate group delimiter must be less than the number of firms.');
         end
 
         if (~isnan(grps_del(end)))
-            error('The last group delimiter in the Groups worksheet must be a NaN.');
+            error('In the ''Groups'' table, the last group delimiter must be NaN.');
         end
 
         grps_del = grps_del(1:end-1);
@@ -180,5 +195,56 @@ function data = parse_dataset_internal(file)
     data.IdxRet = idx_ret;
     data.Obs = t;
     data.StVarsLag = stvars_lag;
+
+end
+
+function res = parse_table(file,sht,name)
+
+    if (verLessThan('Matlab','9.1'))
+        res = readtable(file,'Sheet',sht);
+        
+        if (~all(cellfun(@isempty,regexp(res.Properties.VariableNames,'^Var\d+$','once'))))
+            error(['The ''' name ''' table contains unnamed columns.']);
+        end
+
+        if (strcmp(name,'Groups'))
+            res_vars = varfun(@class,res,'OutputFormat','cell');
+            
+            if (~strcmp(res_vars{1},'double') || ~strcmp(res_vars{2},'cell'))
+                error(['The ''' name ''' table contains invalid or missing values.']);
+            end
+        else
+            if (~strcmp(res.Properties.VariableNames(1),'Date'))
+                error(['The first column of the ''' name ''' table must be called ''Date'' and must contain the time series dates.']);
+            end
+            
+            res.Date = datetime(res.Date,'InputFormat','dd/MM/yyyy');
+            
+            res_vars = varfun(@class,res,'OutputFormat','cell');
+            
+            if (~all(strcmp(res_vars(2:end),'double')))
+                error(['The ''' name ''' table contains invalid or missing values.']);
+            end
+        end
+    else
+        opts = detectImportOptions(file,'Sheet',sht);
+        
+        if (~all(cellfun(@isempty,regexp(opts.VariableNames,'^Var\d+$','once'))))
+            error(['The ''' name ''' table contains unnamed columns.']);
+        end
+
+        if (strcmp(name,'Groups'))
+            opts = setvartype(opts,{'double' 'char'});
+        else
+            if (~strcmp(opts.VariableNames(1),'Date'))
+                error(['The first column of the ''' name ''' table must be called ''Date'' and must contain the time series dates.']);
+            end
+
+            opts = setvartype(opts,[{'datetime'} repmat({'double'},1,numel(opts.VariableNames)-1)]);
+            opts = setvaropts(opts,'Date','InputFormat','dd/MM/yyyy');
+        end
+
+        res = readtable(file,opts);
+    end
 
 end

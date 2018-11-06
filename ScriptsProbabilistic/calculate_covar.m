@@ -32,7 +32,13 @@ function [covar,dcovar] = calculate_covar(varargin)
     ip.parse(varargin{:});
     ip_res = ip.Results;
 
-    [covar,dcovar] = calculate_covar_internal(ip_res.ret0_m,ip_res.ret0_x,ip_res.var_x,ip_res.a,ip_res.svars);
+    nargoutchk(1,2);
+
+    if (nargout == 2)
+        [covar,dcovar] = calculate_covar_internal(ip_res.ret0_m,ip_res.ret0_x,ip_res.var_x,ip_res.a,ip_res.svars);
+    else
+        [covar,~] = calculate_covar_internal(ip_res.ret0_m,ip_res.ret0_x,ip_res.var_x,ip_res.a,ip_res.svars);
+    end
 
 end
 
@@ -52,7 +58,9 @@ function [covar,dcovar] = calculate_covar_internal(ret0_m,ret0_x,var_x,a,svars)
         end
     end
 
-    dcovar = beta(2) .* (var_x - repmat(median(ret0_x),length(ret0_m),1));
+    if (nargout == 2)
+        dcovar = beta(2) .* (var_x - repmat(median(ret0_x),length(ret0_m),1));
+    end
 
 end
 
@@ -76,9 +84,9 @@ function beta = quantile_regression(y,x,k)
         beta = ((xst * x) \ xst) * y;
 
         rsd = y - (x * beta);
-        rsd(abs(rsd)<0.000001) = 0.000001;
-        rsd(rsd<0) = k * rsd(rsd<0);
-        rsd(rsd>0) = (1 - k) * rsd(rsd>0);
+        rsd(abs(rsd) < 0.000001) = 0.000001;
+        rsd(rsd < 0) = k * rsd(rsd < 0);
+        rsd(rsd > 0) = (1 - k) * rsd(rsd > 0);
         rsd = abs(rsd);
 
         z = zeros(xn,xm);
